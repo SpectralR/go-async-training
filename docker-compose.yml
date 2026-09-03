@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  # --- API : reçoit les fichiers et pousse les jobs dans la queue ---
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: jobs-api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - REDIS_ADDR=redis:6379
+      - DATABASE_URL=postgres://jobs_user:jobs_password@postgres:5432/jobs_db?sslmode=disable
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+    networks:
+      - jobs-net
+
+  # --- Worker(s) : consomment la queue et traitent les fichiers ---
+  # scale à plusieurs instances pour tester la concurrence (docker compose up --scale worker=3)
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_ADDR=redis:6379
+      - DATABASE_URL=postgres://jobs_user:jobs_password@postgres:5432/jobs_db?sslmode=disable
+      - WORKER_CONCURRENCY=4
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+    networks:
+      - jobs-net
+    deploy:
+      replicas: 2
+
+  # --- Redis : queue de jobs ---
+  redis:
+    image: redis:7-alpine
+    container_name: jobs-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - jobs-net
+
+  # --- Postgres : persistance des jobs et résultats ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobs-postgres
+    environment:
+      - POSTGRES_USER=jobs_user
+      - POSTGRES_PASSWORD=jobs_password
+      - POSTGRES_DB=jobs_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobs_user -d jobs_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - jobs-net
+
+  # --- Adminer : interface web pour inspecter la base facilement (optionnel, pratique en dev) ---
+  adminer:
+    image: adminer:latest
+    container_name: jobs-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - jobs-net
+
+volumes:
+  redis-data:
+  postgres-data:
+  uploads:
+
+networks:
+  jobs-net:
+    driver: bridge
