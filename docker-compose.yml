@@ -19,13 +19,12 @@ services:
       postgres:
         condition: service_healthy
     volumes:
+      - ./api:/app
       - uploads:/app/uploads
     restart: unless-stopped
     networks:
       - jobs-net
 
-  # --- Worker(s) : consomment la queue et traitent les fichiers ---
-  # scale à plusieurs instances pour tester la concurrence (docker compose up --scale worker=3)
   worker:
     build:
       context: ./worker
@@ -40,6 +39,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
+      - ./worker:/app
       - uploads:/app/uploads
     restart: unless-stopped
     networks:
