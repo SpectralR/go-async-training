@@ -49,7 +49,7 @@ services:
 
   # --- Redis : queue de jobs ---
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: jobs-redis
     ports:
       - "6379:6379"
