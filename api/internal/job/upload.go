@@ -3,6 +3,7 @@ package job
 import (
 	"fmt"
 	"go-async-training-api/internal/custom_error"
+	"go-async-training-api/internal/queue"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -39,18 +40,25 @@ func Upload(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	fileError := createFile(handler.Filename, file)
+	filepath, fileError := createFile(handler.Filename, file)
 	if fileError != nil {
 		http.Error(response, fileError.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// queue
+	_, pubErr := queue.Publish(filepath)
+	if pubErr != nil{
+		http.Error(response, pubErr.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
-func createFile(filename string, file multipart.File) error {
-	locFile, err := os.Create(filepath.Join(uploadDir, filename))
+func createFile(filename string, file multipart.File) (string, error) {
+	fileLocation := filepath.Join(uploadDir, filename)
+	locFile, err := os.Create(fileLocation)
 	if err != nil {
-		return &custom_error.FileCreationError{Message: err.Error()}
+		return "", &custom_error.FileCreationError{Message: err.Error()}
 	}
 
 	defer locFile.Close()
@@ -58,13 +66,13 @@ func createFile(filename string, file multipart.File) error {
 	content, readErr := io.ReadAll(file)
 
 	if readErr != nil {
-		return &custom_error.FileReadError{Message: readErr.Error()}
+		return "", &custom_error.FileReadError{Message: readErr.Error()}
 	}
 
 	_, writeErr := locFile.Write(content)
 	if writeErr != nil {
-		return &custom_error.FileWriteError{Message: writeErr.Error()}
+		return "", &custom_error.FileWriteError{Message: writeErr.Error()}
 	}
 
-	return nil
+	return fileLocation, nil
 }
